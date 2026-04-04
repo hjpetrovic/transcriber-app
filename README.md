@@ -26,8 +26,8 @@ Powered by [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcri
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_ORG/cohere-dictation.git
-cd cohere-dictation
+git clone https://github.com/hjpetrovic/transcriber-app.git
+cd transcriber-app
 ./install.sh
 ```
 
