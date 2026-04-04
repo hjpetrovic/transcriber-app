@@ -87,7 +87,6 @@ All config lives in `~/.config/cohere-dictation/`:
 
 ```
 # ~/.config/cohere-dictation/vocabulary.txt
-azeem azar -> Azeem Azhar
 exponential view -> Exponential View
 claude code -> Claude Code
 ```
