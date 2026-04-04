@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store
+*.app/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# Test audio files
+test_audio.*
+
+# Logs
+*.log
