@@ -97,12 +97,19 @@ class Recorder:
                     time.sleep(0.01)
                     continue
 
-                # Get the latest chunk for VAD analysis
+                # Get the latest chunk for VAD analysis — only grab enough
+                # frames from the tail to cover chunk_samples (avoids O(n²) concat)
                 with self._lock:
-                    all_audio = np.concatenate(self._frames, axis=0).flatten()
+                    needed, count = [], 0
+                    for f in reversed(self._frames):
+                        needed.insert(0, f)
+                        count += f.shape[0]
+                        if count >= chunk_samples:
+                            break
+                    tail = np.concatenate(needed, axis=0).flatten()
 
                 # Analyze the most recent 512 samples
-                recent = all_audio[-chunk_samples:]
+                recent = tail[-chunk_samples:]
                 audio_tensor = torch.from_numpy(recent).float()
 
                 confidence = vad_model(audio_tensor, self.sample_rate).item()

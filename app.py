@@ -698,8 +698,10 @@ class DictationPanel:
         self.window.setHasShadow_(True)
         self.window.setMovableByWindowBackground_(True)
         # Managed = participates in Mission Control / Exposé like a normal window
+        # CanJoinAllSpaces = follows you across Spaces so the panel never disappears
         self.window.setCollectionBehavior_(
             AppKit.NSWindowCollectionBehaviorManaged
+            | AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
         )
         self.window.setHidesOnDeactivate_(False)
 
@@ -1058,6 +1060,7 @@ class DictationEngine:
         self.state = "loading"
         self._last_hotkey_time = 0.0
         self._manual_stop_event = threading.Event()
+        self._cancel_event = threading.Event()
 
         self.panel._on_settings_changed = self._on_settings_changed
 
@@ -1204,6 +1207,7 @@ class DictationEngine:
         # MODE_AUTO
         if self.state == "recording" and (now - self._last_hotkey_time) < 0.5:
             self._last_hotkey_time = now
+            self._cancel_event.set()
             self.recorder.stop()
             self.state = "ready"
             self.panel.set_status("ready")
@@ -1250,6 +1254,10 @@ class DictationEngine:
                 ], capture_output=True, timeout=3)
             except Exception:
                 pass
+
+        if self._cancel_event.is_set():
+            self._cancel_event.clear()
+            return
 
         duration = len(audio) / SAMPLE_RATE
         if duration < 0.3:
