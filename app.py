@@ -41,16 +41,12 @@ MODE_MANUAL = "manual"   # Press hotkey to start, again to stop
 MODE_PUSH = "push"       # Hold hotkey, release to stop
 
 # ─── Hotkey definitions ───────────────────────────────────────────────────
-# Maps config string → (keycode, modifier_mask, display_label, warning_or_None)
-# macOS keycodes: D=2, R=15, S=1, F5=96, F6=97, F7=98, F8=100
+# Maps config string → (keycode, modifier_mask, display_label)
+# macOS keycodes: D=2, R=15, S=1
 HOTKEY_OPTIONS = {
-    "ctrl+shift+d": (2,   Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧D", None),
-    "ctrl+shift+r": (15,  Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧R", None),
-    "ctrl+shift+s": (1,   Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧S", None),
-    "f5":           (96,  0, "F5", "may conflict with macOS Dictation"),
-    "f6":           (97,  0, "F6", "may conflict with Do Not Disturb"),
-    "f7":           (98,  0, "F7", "may conflict with media rewind"),
-    "f8":           (100, 0, "F8", "may conflict with media play/pause"),
+    "ctrl+shift+d": (2,   Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧D"),
+    "ctrl+shift+r": (15,  Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧R"),
+    "ctrl+shift+s": (1,   Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧S"),
 }
 DEFAULT_HOTKEY = "ctrl+shift+d"
 
@@ -499,13 +495,12 @@ class SettingsEditor:
         # Show hotkey options in a scrollable list of clickable labels
         hotkey_display_order = [
             "ctrl+shift+d", "ctrl+shift+r", "ctrl+shift+s",
-            "f5", "f6", "f7", "f8",
         ]
         self._hotkey_labels = {}
         for hk_name in hotkey_display_order:
             if hk_name not in HOTKEY_OPTIONS:
                 continue
-            _, _, display, warning = HOTKEY_OPTIONS[hk_name]
+            _, _, display = HOTKEY_OPTIONS[hk_name]
             y_pos -= 22
             lbl = ClickableLabel.alloc().initWithFrame_(
                 AppKit.NSMakeRect(20, y_pos, self.WIDTH - 40, 18)
@@ -517,7 +512,7 @@ class SettingsEditor:
             lbl.setFont_(AppKit.NSFont.systemFontOfSize_(11))
             lbl.setClickCallback_(lambda n=hk_name: self._select_hotkey(n))
             content.addSubview_(lbl)
-            self._hotkey_labels[hk_name] = (lbl, display, warning)
+            self._hotkey_labels[hk_name] = (lbl, display)
 
         self._refresh_hotkey_labels()
 
@@ -629,13 +624,12 @@ class SettingsEditor:
         self._refresh_hotkey_labels()
 
     def _refresh_hotkey_labels(self):
-        for name, (lbl, display, warning) in self._hotkey_labels.items():
-            suffix = f"  ⚠ {warning}" if warning else ""
+        for name, (lbl, display) in self._hotkey_labels.items():
             if name == self._selected_hotkey:
-                lbl.setStringValue_(f"● {display}  ({name}){suffix}")
-                lbl.setTextColor_(ns_color(*ACCENT_ORANGE) if warning else TEXT_PRIMARY)
+                lbl.setStringValue_(f"● {display}  ({name})")
+                lbl.setTextColor_(TEXT_PRIMARY)
             else:
-                lbl.setStringValue_(f"○ {display}  ({name}){suffix}")
+                lbl.setStringValue_(f"○ {display}  ({name})")
                 lbl.setTextColor_(TEXT_SECONDARY)
 
     def _toggle_paste(self):
@@ -1124,7 +1118,7 @@ class DictationEngine:
             hotkey_def = HOTKEY_OPTIONS[DEFAULT_HOTKEY]
             hotkey_name = DEFAULT_HOTKEY
 
-        target_keycode, target_modmask, display_label, _warning = hotkey_def
+        target_keycode, target_modmask, display_label = hotkey_def
         self._hotkey_keycode = target_keycode
         self._hotkey_modmask = target_modmask
         self._hotkey_label = display_label
