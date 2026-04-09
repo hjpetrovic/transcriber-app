@@ -12,8 +12,9 @@ VOCAB_FILE = CONFIG_DIR / "vocabulary.txt"
 
 DEFAULT_CONFIG = {
     "language": "auto",
-    "hotkey": "option+d",
-    "recording_mode": "auto",       # auto | manual | push
+    "hotkey_keycode": 2,         # D key (macOS virtual keycode)
+    "hotkey_modifiers": 393216,  # Ctrl+Shift (0x60000)
+    "recording_mode": "auto",   # auto | manual | push
     "silence_threshold": 1.5,
     "max_recording_duration": 120,
     "auto_paste": True,

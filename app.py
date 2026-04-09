@@ -40,15 +40,101 @@ MODE_AUTO = "auto"       # Auto-stop on silence
 MODE_MANUAL = "manual"   # Press hotkey to start, again to stop
 MODE_PUSH = "push"       # Hold hotkey, release to stop
 
-# ─── Hotkey definitions ───────────────────────────────────────────────────
-# Maps config string → (keycode, modifier_mask, display_label)
-# macOS keycodes: D=2, R=15, S=1
-HOTKEY_OPTIONS = {
-    "ctrl+shift+d": (2,   Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧D"),
-    "ctrl+shift+r": (15,  Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧R"),
-    "ctrl+shift+s": (1,   Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧S"),
+# ─── Hotkey system ────────────────────────────────────────────────────────
+# Default: Ctrl+Shift+D (keycode 2, Ctrl|Shift flags)
+DEFAULT_HOTKEY_KEYCODE = 2
+DEFAULT_HOTKEY_MODIFIERS = (
+    Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift
+)
+
+# Modifier bits we track (ignore Caps Lock, Fn, etc.)
+MODIFIER_MASK = (
+    Quartz.kCGEventFlagMaskControl
+    | Quartz.kCGEventFlagMaskAlternate
+    | Quartz.kCGEventFlagMaskShift
+    | Quartz.kCGEventFlagMaskCommand
+)
+
+# macOS virtual keycode → display name
+KEYCODE_NAMES = {
+    0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X",
+    8: "C", 9: "V", 11: "B", 12: "Q", 13: "W", 14: "E", 15: "R",
+    16: "Y", 17: "T", 18: "1", 19: "2", 20: "3", 21: "4", 22: "6",
+    23: "5", 24: "=", 25: "9", 26: "7", 27: "-", 28: "8", 29: "0",
+    30: "]", 31: "O", 32: "U", 33: "[", 34: "I", 35: "P", 36: "Return",
+    37: "L", 38: "J", 39: "'", 40: "K", 41: ";", 42: "\\", 43: ",",
+    44: "/", 45: "N", 46: "M", 47: ".", 48: "Tab", 49: "Space",
+    50: "`", 51: "Delete", 53: "Esc",
+    96: "F5", 97: "F6", 98: "F7", 99: "F3", 100: "F8", 101: "F9",
+    103: "F11", 105: "F13", 107: "F14", 109: "F10", 111: "F12",
+    118: "F4", 120: "F2", 122: "F1",
+    123: "Left", 124: "Right", 125: "Down", 126: "Up",
 }
-DEFAULT_HOTKEY = "ctrl+shift+d"
+
+# Legacy string → (keycode, modifier_mask) for migrating old configs
+_LEGACY_HOTKEY_MAP = {
+    "option+d":     (2,  Quartz.kCGEventFlagMaskAlternate),
+    "option+f":     (3,  Quartz.kCGEventFlagMaskAlternate),
+    "option+j":     (38, Quartz.kCGEventFlagMaskAlternate),
+    "option+k":     (40, Quartz.kCGEventFlagMaskAlternate),
+    "f5": (96, 0), "f6": (97, 0), "f7": (98, 0), "f8": (100, 0),
+    "ctrl+shift+d": (2,  Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift),
+    "ctrl+shift+r": (15, Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift),
+    "ctrl+shift+s": (1,  Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift),
+}
+
+# Known macOS system hotkeys — warn user if they pick one of these
+KNOWN_CONFLICTS = {
+    (49, Quartz.kCGEventFlagMaskCommand): "Spotlight (Cmd+Space)",
+    (49, Quartz.kCGEventFlagMaskControl): "Input source (Ctrl+Space)",
+    (48, Quartz.kCGEventFlagMaskCommand): "App Switcher (Cmd+Tab)",
+    (12, Quartz.kCGEventFlagMaskCommand): "Quit App (Cmd+Q)",
+    (13, Quartz.kCGEventFlagMaskCommand): "Close Window (Cmd+W)",
+    (8,  Quartz.kCGEventFlagMaskCommand): "Copy (Cmd+C)",
+    (9,  Quartz.kCGEventFlagMaskCommand): "Paste (Cmd+V)",
+    (6,  Quartz.kCGEventFlagMaskCommand): "Undo (Cmd+Z)",
+    (0,  Quartz.kCGEventFlagMaskCommand): "Select All (Cmd+A)",
+}
+
+
+def build_hotkey_label(keycode, modifiers):
+    """Build a human-readable label like '⌃⇧D' from keycode + modifier flags."""
+    parts = []
+    if modifiers & Quartz.kCGEventFlagMaskControl:
+        parts.append("⌃")
+    if modifiers & Quartz.kCGEventFlagMaskAlternate:
+        parts.append("⌥")
+    if modifiers & Quartz.kCGEventFlagMaskShift:
+        parts.append("⇧")
+    if modifiers & Quartz.kCGEventFlagMaskCommand:
+        parts.append("⌘")
+    parts.append(KEYCODE_NAMES.get(keycode, f"Key{keycode}"))
+    return "".join(parts)
+
+
+def resolve_hotkey(cfg):
+    """Resolve hotkey from config, handling legacy string format.
+    Returns (keycode, modifier_mask)."""
+    if "hotkey_keycode" in cfg:
+        return cfg["hotkey_keycode"], cfg["hotkey_modifiers"]
+    # Legacy string format
+    legacy = _LEGACY_HOTKEY_MAP.get(cfg.get("hotkey", ""))
+    if legacy:
+        return legacy
+    return DEFAULT_HOTKEY_KEYCODE, DEFAULT_HOTKEY_MODIFIERS
+
+
+def check_hotkey_conflict(keycode, modifiers):
+    """Return conflict description if hotkey clashes with macOS, else None."""
+    conflict = KNOWN_CONFLICTS.get((keycode, modifiers))
+    if conflict:
+        return conflict
+    # Bare letter key with no modifiers will type characters
+    if modifiers == 0 and keycode not in range(96, 132):
+        name = KEYCODE_NAMES.get(keycode, "")
+        if name and len(name) == 1:
+            return f"Will type '{name}' in active apps"
+    return None
 
 
 # ─── Colors ────────────────────────────────────────────────────────────────
@@ -444,7 +530,8 @@ class SettingsEditor:
         self.config = dict(config)
         self.on_save = on_save
         self._selected_mode = config.get("recording_mode", MODE_AUTO)
-        self._selected_hotkey = config.get("hotkey", DEFAULT_HOTKEY)
+        self._hotkey_keycode, self._hotkey_modifiers = resolve_hotkey(config)
+        self._event_monitor = None
 
         screen = AppKit.NSScreen.mainScreen().frame()
         x = (screen.size.width - self.WIDTH) / 2
@@ -466,10 +553,11 @@ class SettingsEditor:
         # ── Recording mode ──
         y_pos = self._section_title(content, "RECORDING MODE", y_pos)
 
+        hk = build_hotkey_label(self._hotkey_keycode, self._hotkey_modifiers)
         mode_info = [
             (MODE_AUTO,   "Auto-stop (stops when you stop talking)"),
-            (MODE_MANUAL, "Manual (⌥D to start & stop)"),
-            (MODE_PUSH,   "Push-to-talk (hold ⌥D, release to stop)"),
+            (MODE_MANUAL, f"Manual ({hk} to start & stop)"),
+            (MODE_PUSH,   f"Push-to-talk (hold {hk}, release to stop)"),
         ]
         self._mode_labels = {}
         for mode, label in mode_info:
@@ -492,29 +580,48 @@ class SettingsEditor:
         y_pos -= 28
         y_pos = self._section_title(content, "HOTKEY (restart app to apply)", y_pos)
 
-        # Show hotkey options in a scrollable list of clickable labels
-        hotkey_display_order = [
-            "ctrl+shift+d", "ctrl+shift+r", "ctrl+shift+s",
-        ]
-        self._hotkey_labels = {}
-        for hk_name in hotkey_display_order:
-            if hk_name not in HOTKEY_OPTIONS:
-                continue
-            _, _, display = HOTKEY_OPTIONS[hk_name]
-            y_pos -= 22
-            lbl = ClickableLabel.alloc().initWithFrame_(
-                AppKit.NSMakeRect(20, y_pos, self.WIDTH - 40, 18)
-            )
-            lbl.setBezeled_(False)
-            lbl.setDrawsBackground_(False)
-            lbl.setEditable_(False)
-            lbl.setSelectable_(False)
-            lbl.setFont_(AppKit.NSFont.systemFontOfSize_(11))
-            lbl.setClickCallback_(lambda n=hk_name: self._select_hotkey(n))
-            content.addSubview_(lbl)
-            self._hotkey_labels[hk_name] = (lbl, display)
+        # Current hotkey display
+        y_pos -= 26
+        self.hotkey_display = AppKit.NSTextField.alloc().initWithFrame_(
+            AppKit.NSMakeRect(20, y_pos, self.WIDTH - 40, 20)
+        )
+        self.hotkey_display.setBezeled_(False)
+        self.hotkey_display.setDrawsBackground_(False)
+        self.hotkey_display.setEditable_(False)
+        self.hotkey_display.setSelectable_(False)
+        self.hotkey_display.setFont_(AppKit.NSFont.systemFontOfSize_weight_(13, AppKit.NSFontWeightMedium))
+        self.hotkey_display.setTextColor_(TEXT_PRIMARY)
+        self._update_hotkey_display()
+        content.addSubview_(self.hotkey_display)
 
-        self._refresh_hotkey_labels()
+        # Record button
+        y_pos -= 26
+        self.record_btn = ClickableLabel.alloc().initWithFrame_(
+            AppKit.NSMakeRect(20, y_pos, self.WIDTH - 40, 20)
+        )
+        self.record_btn.setStringValue_("Record new hotkey...")
+        self.record_btn.setBezeled_(False)
+        self.record_btn.setDrawsBackground_(False)
+        self.record_btn.setEditable_(False)
+        self.record_btn.setSelectable_(False)
+        self.record_btn.setTextColor_(ns_color(*ACCENT_BLUE))
+        self.record_btn.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        self.record_btn.setClickCallback_(self._start_recording)
+        content.addSubview_(self.record_btn)
+
+        # Conflict warning label
+        y_pos -= 20
+        self.hotkey_warning = AppKit.NSTextField.alloc().initWithFrame_(
+            AppKit.NSMakeRect(20, y_pos, self.WIDTH - 40, 16)
+        )
+        self.hotkey_warning.setBezeled_(False)
+        self.hotkey_warning.setDrawsBackground_(False)
+        self.hotkey_warning.setEditable_(False)
+        self.hotkey_warning.setSelectable_(False)
+        self.hotkey_warning.setFont_(AppKit.NSFont.systemFontOfSize_(10))
+        self.hotkey_warning.setTextColor_(ns_color(*ACCENT_ORANGE))
+        self._update_hotkey_warning()
+        content.addSubview_(self.hotkey_warning)
 
         # ── Language ──
         y_pos -= 28
@@ -619,18 +726,58 @@ class SettingsEditor:
                 lbl.setStringValue_(f"○ {text}")
                 lbl.setTextColor_(TEXT_SECONDARY)
 
-    def _select_hotkey(self, name):
-        self._selected_hotkey = name
-        self._refresh_hotkey_labels()
+    def _update_hotkey_display(self):
+        label = build_hotkey_label(self._hotkey_keycode, self._hotkey_modifiers)
+        self.hotkey_display.setStringValue_(f"Current: {label}")
+        self.hotkey_display.setTextColor_(TEXT_PRIMARY)
 
-    def _refresh_hotkey_labels(self):
-        for name, (lbl, display) in self._hotkey_labels.items():
-            if name == self._selected_hotkey:
-                lbl.setStringValue_(f"● {display}  ({name})")
-                lbl.setTextColor_(TEXT_PRIMARY)
-            else:
-                lbl.setStringValue_(f"○ {display}  ({name})")
-                lbl.setTextColor_(TEXT_SECONDARY)
+    def _update_hotkey_warning(self):
+        conflict = check_hotkey_conflict(self._hotkey_keycode, self._hotkey_modifiers)
+        if conflict:
+            self.hotkey_warning.setStringValue_(f"Warning: {conflict}")
+        else:
+            self.hotkey_warning.setStringValue_("")
+
+    def _start_recording(self):
+        self.hotkey_display.setStringValue_("Press your hotkey...")
+        self.hotkey_display.setTextColor_(ns_color(*ACCENT_ORANGE))
+        self.hotkey_warning.setStringValue_("")
+        self.record_btn.setStringValue_("Press Escape to cancel")
+        self.record_btn.setTextColor_(TEXT_DIM)
+
+        # Keycodes for bare modifier keys — ignore these, wait for the real key
+        modifier_keycodes = {54, 55, 56, 57, 58, 59, 60, 61, 62, 63}
+
+        def handler(event):
+            keycode = event.keyCode()
+            if keycode in modifier_keycodes:
+                return event  # let modifier through, keep waiting
+
+            flags = int(event.modifierFlags()) & MODIFIER_MASK
+
+            # Escape with no modifiers cancels
+            if keycode == 53 and flags == 0:
+                self._stop_recording()
+                self._update_hotkey_display()
+                return None
+
+            self._hotkey_keycode = keycode
+            self._hotkey_modifiers = flags
+            self._stop_recording()
+            self._update_hotkey_display()
+            self._update_hotkey_warning()
+            return None  # consume the event
+
+        self._event_monitor = AppKit.NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
+            AppKit.NSEventMaskKeyDown, handler
+        )
+
+    def _stop_recording(self):
+        if self._event_monitor:
+            AppKit.NSEvent.removeMonitor_(self._event_monitor)
+            self._event_monitor = None
+        self.record_btn.setStringValue_("Record new hotkey...")
+        self.record_btn.setTextColor_(ns_color(*ACCENT_BLUE))
 
     def _toggle_paste(self):
         self._paste_on = not self._paste_on
@@ -649,8 +796,11 @@ class SettingsEditor:
             lbl.setTextColor_(TEXT_SECONDARY)
 
     def _save(self):
+        self._stop_recording()  # clean up if still recording
         self.config["recording_mode"] = self._selected_mode
-        self.config["hotkey"] = self._selected_hotkey
+        self.config["hotkey_keycode"] = self._hotkey_keycode
+        self.config["hotkey_modifiers"] = self._hotkey_modifiers
+        self.config.pop("hotkey", None)  # remove legacy string key
         self.config["language"] = self.lang_field.stringValue().strip() or "auto"
         self.config["auto_paste"] = self._paste_on
         self.config["sound_feedback"] = self._sound_on
@@ -729,10 +879,10 @@ class DictationPanel:
         close_btn.setClickCallback_(self.hide)
         content.addSubview_(close_btn)
 
-        hint = self._make_label("⌥D", 11, AppKit.NSFontWeightRegular, TEXT_DIM)
-        hint.setFrame_(AppKit.NSMakeRect(self.PANEL_WIDTH - 90, y_pos + 2, 50, 18))
-        hint.setAlignment_(AppKit.NSTextAlignmentRight)
-        content.addSubview_(hint)
+        self.hotkey_hint = self._make_label("...", 11, AppKit.NSFontWeightRegular, TEXT_DIM)
+        self.hotkey_hint.setFrame_(AppKit.NSMakeRect(self.PANEL_WIDTH - 90, y_pos + 2, 50, 18))
+        self.hotkey_hint.setAlignment_(AppKit.NSTextAlignmentRight)
+        content.addSubview_(self.hotkey_hint)
 
         # ── Status bar ──
         y_pos -= 36
@@ -839,6 +989,7 @@ class DictationPanel:
         content.addSubview_(config_btn)
 
         self.history = []
+        self._hotkey_label = "..."
         self._vocab_editor = None
         self._settings_editor = None
         self._on_settings_changed = None
@@ -892,11 +1043,19 @@ class DictationPanel:
         else:
             self.show()
 
+    def set_hotkey_label(self, label):
+        """Update the hotkey label shown throughout the panel."""
+        self._hotkey_label = label
+        def _u():
+            self.hotkey_hint.setStringValue_(label)
+        AppHelper.callAfter(_u)
+
     def set_mode_hint(self, mode):
+        lbl = self._hotkey_label
         hints = {
             MODE_AUTO: "Mode: auto-stop on silence",
-            MODE_MANUAL: "Mode: ⌥D to start & stop",
-            MODE_PUSH: "Mode: hold ⌥D, release to stop",
+            MODE_MANUAL: f"Mode: {lbl} to start & stop",
+            MODE_PUSH: f"Mode: hold {lbl}, release to stop",
         }
         def _u():
             self.mode_label.setStringValue_(hints.get(mode, ""))
@@ -909,9 +1068,10 @@ class DictationPanel:
                 "recording": ACCENT_RED, "transcribing": ACCENT_BLUE,
                 "done": ACCENT_GREEN, "error": ACCENT_ORANGE,
             }
+            lbl = self._hotkey_label
             labels = {
                 "loading": text or "Loading model...",
-                "ready": "Ready — ⌥D to dictate",
+                "ready": f"Ready — {lbl} to dictate",
                 "recording": text or "Recording...",
                 "transcribing": "Transcribing...",
                 "done": text or "Done!",
@@ -1063,6 +1223,7 @@ class DictationEngine:
         self.auto_paste = self.cfg["auto_paste"]
         self.sound_feedback = self.cfg["sound_feedback"]
         self.recording_mode = self.cfg.get("recording_mode", MODE_AUTO)
+        self.panel.set_hotkey_label(build_hotkey_label(*resolve_hotkey(self.cfg)))
         self.panel.set_vocabulary(self.vocab)
         self.panel.set_mode_hint(self.recording_mode)
 
@@ -1106,22 +1267,21 @@ class DictationEngine:
 
         self.state = "ready"
         self.panel.set_status("ready")
-        print(f"Ready! Mode: {self.recording_mode}. Press Option+D to dictate.")
+        label = build_hotkey_label(*resolve_hotkey(self.cfg))
+        print(f"Ready! Mode: {self.recording_mode}. Press {label} to dictate.")
         self._start_hotkey_listener()
 
     def _start_hotkey_listener(self):
         """Use Quartz CGEventTap for global hotkey — no TSM threading issues."""
-        hotkey_name = self.cfg.get("hotkey", DEFAULT_HOTKEY)
-        hotkey_def = HOTKEY_OPTIONS.get(hotkey_name)
-        if not hotkey_def:
-            print(f"Unknown hotkey '{hotkey_name}', falling back to {DEFAULT_HOTKEY}")
-            hotkey_def = HOTKEY_OPTIONS[DEFAULT_HOTKEY]
-            hotkey_name = DEFAULT_HOTKEY
+        target_keycode, target_modmask = resolve_hotkey(self.cfg)
+        display_label = build_hotkey_label(target_keycode, target_modmask)
 
-        target_keycode, target_modmask, display_label = hotkey_def
         self._hotkey_keycode = target_keycode
         self._hotkey_modmask = target_modmask
         self._hotkey_label = display_label
+
+        # Update panel to show the resolved hotkey
+        self.panel.set_hotkey_label(display_label)
 
         def _event_callback(_proxy, event_type, event, _refcon):
             if event_type == Quartz.kCGEventKeyDown:
@@ -1218,9 +1378,10 @@ class DictationEngine:
             self._play_sound()
 
         mode = self.recording_mode
+        lbl = self._hotkey_label
         mode_hints = {
             MODE_AUTO: "Recording... (auto-stop)",
-            MODE_MANUAL: "Recording... ⌥D to stop",
+            MODE_MANUAL: f"Recording... {lbl} to stop",
             MODE_PUSH: "Recording... release to stop",
         }
         self.panel.set_status("recording", mode_hints.get(mode))
