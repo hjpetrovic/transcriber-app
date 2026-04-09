@@ -55,7 +55,7 @@ HOTKEY_OPTIONS = {
     "ctrl+shift+d": (2,   Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧D"),
     "ctrl+shift+r": (15,  Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskShift, "⌃⇧R"),
 }
-DEFAULT_HOTKEY = "option+d"
+DEFAULT_HOTKEY = "ctrl+shift+d"
 
 
 # ─── Colors ────────────────────────────────────────────────────────────────
@@ -1140,12 +1140,14 @@ class DictationEngine:
                 if keycode == self._hotkey_keycode:
                     if self._hotkey_modmask == 0 or (flags & self._hotkey_modmask):
                         self._on_hotkey_down()
+                        return None  # suppress — prevent key reaching active app
             elif event_type == Quartz.kCGEventKeyUp:
-                # Track key release for push-to-talk
-                if self.recording_mode == MODE_PUSH and self.state == "recording":
-                    keycode = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode)
-                    if keycode == self._hotkey_keycode:
+                keycode = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode)
+                if keycode == self._hotkey_keycode:
+                    # Track key release for push-to-talk
+                    if self.recording_mode == MODE_PUSH and self.state == "recording":
                         self._manual_stop_event.set()
+                    return None  # suppress key-up too so no stray character is inserted
             elif event_type == Quartz.kCGEventFlagsChanged:
                 # Track modifier release for push-to-talk (only if hotkey uses modifiers)
                 if self._hotkey_modmask and self.recording_mode == MODE_PUSH and self.state == "recording":
@@ -1163,7 +1165,7 @@ class DictationEngine:
         tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,
             Quartz.kCGHeadInsertEventTap,
-            Quartz.kCGEventTapOptionListenOnly,
+            Quartz.kCGEventTapOptionDefault,  # active tap — can suppress events
             event_mask,
             _event_callback,
             None,
